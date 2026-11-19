@@ -116,7 +116,7 @@ RUN mkdir -p /tmp/build && cd /tmp/build && \
     rm -rf /tmp/build
 
 ENV LD_LIBRARY_PATH="/opt/tblite/lib:/opt/scalapack/lib:${LD_LIBRARY_PATH}" \
-    PKG_CONFIG_PATH="/opt/tblite/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
+    PKG_CONFIG_PATH="/opt/tblite/lib/pkgconfig" \
     CMAKE_PREFIX_PATH="/opt/tblite:/opt/scalapack"
 
 # -----------------------------------------------------------------------------
@@ -163,6 +163,8 @@ RUN mkdir -p /tmp/build && cd /tmp/build && \
 
 ENV PATH="/opt/cp2k/bin:${PATH}" \
     LD_LIBRARY_PATH="/opt/cp2k/lib:/opt/dbcsr/lib:${LD_LIBRARY_PATH}" \
+    PKG_CONFIG_PATH="/opt/cp2k/lib/pkgconfig:/opt/dbcsr/lib/pkgconfig:${PKG_CONFIG_PATH}" \
+    CMAKE_PREFIX_PATH="/opt/cp2k:/opt/dbcsr:${CMAKE_PREFIX_PATH}" \
     CP2K_DATA_DIR="/opt/cp2k/share/cp2k/data"
 
 # -----------------------------------------------------------------------------
@@ -193,7 +195,17 @@ RUN mkdir -p /tmp/build && cd /tmp/build && \
     curl -fsSL "https://ftp.gromacs.org/gromacs/gromacs-${GROMACS_VERSION}.tar.gz" -o gromacs.tar.gz && \
     tar -xzf gromacs.tar.gz && \
     cd "gromacs-${GROMACS_VERSION}" && \
-    /opt/plumed/bin/plumed patch -p -e "gromacs-${GROMACS_VERSION%.*}-${GROMACS_VERSION##*.}" && \
+    ENGINE="gromacs-${GROMACS_VERSION}" && \
+    if [ ! -e "/opt/plumed/lib/plumed/patches/${ENGINE}.diff" ]; then \
+        DIFF_FILE="$(printf '%s\n' /opt/plumed/lib/plumed/patches/gromacs-${GROMACS_VERSION%.*}*.diff | sort -V | tail -n 1)" && \
+        test -e "${DIFF_FILE}" && \
+        ENGINE="$(basename "${DIFF_FILE}" .diff)"; \
+    fi && \
+    /opt/plumed/bin/plumed patch -p -e "${ENGINE}" && \
+    set -- && \
+    if ! pkg-config --exists libcp2k; then \
+        set -- "-DCP2K_LINKER_FLAGS=-L/opt/cp2k/lib -lcp2k"; \
+    fi && \
     cmake -B _build -G Ninja \
         -DCMAKE_INSTALL_PREFIX=/opt/gromacs \
         -DCMAKE_INSTALL_LIBDIR=lib \
@@ -207,6 +219,7 @@ RUN mkdir -p /tmp/build && cd /tmp/build && \
         -DGMX_CP2K=ON \
         -DCP2K_DIR=/opt/cp2k \
         -Dcp2k_DIR=/opt/cp2k/lib/cmake/cp2k \
+        "$@" \
         -DGMX_FFT_LIBRARY=fftw3 \
         -DGMX_BLAS_USER=/usr/lib64/libopenblas.so \
         -DGMX_LAPACK_USER=/usr/lib64/liblapack.so && \
