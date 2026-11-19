@@ -26,8 +26,9 @@ fi
 echo "PASS: All required shared libraries resolved with single MPI linkage."
 
 echo "=== 2. PLUMED Integration Check ==="
-if ! gmx_mpi mdrun -h 2>&1 | grep -qi "plumed"; then
-    echo "ERROR: -plumed flag not found in gmx_mpi mdrun -h"
+MDRUN_HELP=$(gmx_mpi mdrun -h -hidden 2>&1 || true)
+if ! echo "$MDRUN_HELP" | grep -qi "plumed"; then
+    echo "ERROR: -plumed flag not found in gmx_mpi mdrun -h -hidden"
     exit 1
 fi
 echo "PASS: PLUMED integration active in gmx_mpi."
@@ -89,7 +90,7 @@ pbc                      = xyz
 qmmm-cp2k-active         = true
 qmmm-cp2k-qmgroup        = QMatoms
 qmmm-cp2k-qmmethod       = INPUT
-qmmm-cp2k-qmfilenames    = cp2k_gfn2.inp
+qmmm-cp2k-qmfilenames    = qmmm_run
 EOF
 
 # CP2K input using tblite GFN2-xTB
@@ -102,13 +103,13 @@ cat <<'EOF' > cp2k_gfn2.inp
 &FORCE_EVAL
   METHOD QMMM
   &DFT
+    CHARGE 0
+    MULTIPLICITY 1
     &QS
       METHOD xTB
       &XTB
-        GFN_TYPE TBLITE
-        &TBLITE
+        &TBLITE T
           METHOD GFN2
-          ACCURACY 1.0
         &END TBLITE
       &END XTB
     &END QS
@@ -117,11 +118,50 @@ cat <<'EOF' > cp2k_gfn2.inp
       EPS_SCF 1.0E-5
       MAX_SCF 50
     &END SCF
+    &POISSON
+      PERIODIC XYZ
+      POISSON_SOLVER PERIODIC
+      &EWALD
+        EWALD_TYPE SPME
+        GMAX 25
+      &END EWALD
+    &END POISSON
   &END DFT
+  &MM
+    &FORCEFIELD
+      DO_NONBONDED FALSE
+    &END FORCEFIELD
+    &POISSON
+      &EWALD
+        EWALD_TYPE SPME
+        GMAX 25
+      &END EWALD
+    &END POISSON
+  &END MM
   &QMMM
     ECOUPL COULOMB
     USE_GEEP_LIB 12
+    &CELL
+      ABC 20.0 20.0 20.0
+    &END CELL
+    &QM_KIND O
+      MM_INDEX 1
+    &END QM_KIND
+    &QM_KIND H
+      MM_INDEX 2 3
+    &END QM_KIND
   &END QMMM
+  &SUBSYS
+    &CELL
+      ABC 20.0 20.0 20.0
+    &END CELL
+    &TOPOLOGY
+      COORD_FILE_NAME qmmm_input.pdb
+      COORD_FILE_FORMAT PDB
+      CHARGE_EXTENDED TRUE
+      CONN_FILE_FORMAT OFF
+    &END TOPOLOGY
+  &END SUBSYS
 &END FORCE_EVAL
 EOF
 
@@ -131,8 +171,19 @@ d1: DISTANCE ATOMS=1,4
 PRINT ARG=d1 STRIDE=1 FILE=COLVAR
 EOF
 
-gmx_mpi grompp -f qmmm.mdp -c box.gro -p topol.top -n index.ndx -o topol.tpr -maxwarn 2
-OMP_NUM_THREADS=2 /opt/bin/gmx_isolated.sh mdrun -s topol.tpr -plumed plumed.dat -ntomp 2
+mkdir -p topol qmmm_run
+gmx_mpi grompp -f qmmm.mdp -c box.gro -p topol.top -n index.ndx -qmi cp2k_gfn2.inp -o topol.tpr -maxwarn 2
+if ! OMP_NUM_THREADS=2 /opt/bin/gmx_isolated.sh mdrun -s topol.tpr -plumed plumed.dat -ntomp 2; then
+    echo "=== mdrun failed; diagnostic logs ==="
+    find . -maxdepth 2 -type f
+    for f in md.log $(find . -maxdepth 2 \( -name "*.out" -o -name "qmmm_run.inp" \) -type f); do
+        if [ -f "$f" ]; then
+            echo "--- $f (tail) ---"
+            tail -n 70 "$f"
+        fi
+    done
+    exit 1
+fi
 
 if [ ! -s COLVAR ]; then
     echo "ERROR: PLUMED COLVAR file was not generated!"

@@ -14,13 +14,13 @@
   METHOD QMMM
 
   &DFT
+    CHARGE 0
+    MULTIPLICITY 1
     &QS
       METHOD xTB
       &XTB
-        GFN_TYPE TBLITE
-        &TBLITE
+        &TBLITE T
           METHOD GFN2
-          ACCURACY 1.0
         &END TBLITE
       &END XTB
     &END QS
@@ -45,14 +45,38 @@
     &END POISSON
   &END DFT
 
+  &MM
+    &FORCEFIELD
+      DO_NONBONDED FALSE
+    &END FORCEFIELD
+    &POISSON
+      &EWALD
+        EWALD_TYPE SPME
+        GMAX 25
+      &END EWALD
+    &END POISSON
+  &END MM
+
   &QMMM
     ECOUPL COULOMB
     USE_GEEP_LIB 12
-    &PERIODIC
-      GMAX 0.5
-      &MULTIPOLE ON
-        EWALD_PRECISION 1.0E-6
-      &END MULTIPOLE
-    &END PERIODIC
+    &CELL
+      ABC 20.0 20.0 20.0
+    &END CELL
+    ! Define QM atoms by 1-based MM_INDEX (example):
+    ! &QM_KIND O
+    !   MM_INDEX 1
+    ! &END QM_KIND
   &END QMMM
+  &SUBSYS
+    &CELL
+      ABC 20.0 20.0 20.0
+    &END CELL
+    &TOPOLOGY
+      COORD_FILE_NAME qmmm_input.pdb
+      COORD_FILE_FORMAT PDB
+      CHARGE_EXTENDED TRUE
+      CONN_FILE_FORMAT OFF
+    &END TOPOLOGY
+  &END SUBSYS
 &END FORCE_EVAL
