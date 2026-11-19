@@ -7,10 +7,10 @@ FROM rockylinux:9
 ARG OPENMPI_VERSION=4.1.6
 ARG SCALAPACK_VERSION=2.2.0
 ARG TBLITE_VERSION=0.4.0
-ARG DBCSR_VERSION=2.7.0
-ARG CP2K_VERSION=2024.3
+ARG DBCSR_VERSION=2.8.0
+ARG CP2K_VERSION=2025.2
 ARG PLUMED_VERSION=2.9.2
-ARG GROMACS_VERSION=2024.3
+ARG GROMACS_VERSION=2024.2
 
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
@@ -143,7 +143,7 @@ RUN mkdir -p /tmp/build && cd /tmp/build && \
     cd cp2k && \
     cmake -B _build -G Ninja \
         -DCMAKE_INSTALL_PREFIX=/opt/cp2k \
-        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DCMAKE_INSTALL_LIBDIR:STRING=lib \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=ON \
         -DCP2K_USE_MPI=ON \
@@ -154,11 +154,13 @@ RUN mkdir -p /tmp/build && cd /tmp/build && \
         -DCP2K_USE_LIBXC=OFF \
         -DCP2K_USE_LIBINT2=OFF \
         -Ddbcsr_DIR=/opt/dbcsr/lib/cmake/dbcsr \
+        -Dtblite_DIR=/opt/tblite/lib/cmake/tblite \
         -DCMAKE_PREFIX_PATH="/opt/tblite;/opt/scalapack;/opt/dbcsr" && \
     cmake --build _build -j"$(nproc)" && \
-    cmake --install _build && \
-    test -f /opt/cp2k/lib/libcp2k.so && \
-    find /opt/cp2k/include -name "libcp2k.h" | grep -q . && \
+    cmake --install _build --prefix /opt/cp2k && \
+    test -f /opt/cp2k/lib/libcp2k.so || { echo "ERROR: /opt/cp2k/lib/libcp2k.so not found" >&2; ls -la /opt/cp2k/lib || true; exit 1; } && \
+    (ldd /opt/cp2k/lib/libcp2k.so | grep -q "libtblite.so" || { echo "ERROR: libtblite.so not linked in libcp2k.so" >&2; ldd /opt/cp2k/lib/libcp2k.so; exit 1; }) && \
+    (find /opt/cp2k/include -name "libcp2k.h" | grep -q . || { echo "ERROR: libcp2k.h not found under /opt/cp2k/include" >&2; exit 1; }) && \
     rm -rf /tmp/build
 
 ENV PATH="/opt/cp2k/bin:${PATH}" \
@@ -202,6 +204,7 @@ RUN mkdir -p /tmp/build && cd /tmp/build && \
         ENGINE="$(basename "${DIFF_FILE}" .diff)"; \
     fi && \
     /opt/plumed/bin/plumed patch -p -e "${ENGINE}" && \
+    (find . -name "*.rej" | grep -q . && { echo "ERROR: PLUMED patch had rejected hunks:" >&2; find . -name "*.rej" >&2; exit 1; } || true) && \
     set -- && \
     if ! pkg-config --exists libcp2k; then \
         set -- "-DCP2K_LINKER_FLAGS=-L/opt/cp2k/lib -lcp2k"; \
