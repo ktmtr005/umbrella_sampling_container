@@ -1,0 +1,58 @@
+! Reference CP2K QM/MM input snippet for GROMACS-CP2K using tblite (GFN2-xTB)
+! and Ewald electrostatic embedding (&QMMM).
+! Note: When coupled with GROMACS (qmmm-cp2k-active = true), GROMACS supplies
+! the &SUBSYS coordinates, cell, &QM_KIND, and &MM_KIND sections automatically,
+! or merges with a custom CP2K input template via qmmm-cp2k-qmfilenames.
+
+&GLOBAL
+  PROJECT qmmm_gfn2_xtb
+  RUN_TYPE ENERGY_FORCE
+  PRINT_LEVEL LOW
+&END GLOBAL
+
+&FORCE_EVAL
+  METHOD QMMM
+
+  &DFT
+    &QS
+      METHOD xTB
+      &XTB
+        GFN_TYPE TBLITE
+        &TBLITE
+          METHOD GFN2
+          ACCURACY 1.0
+        &END TBLITE
+      &END XTB
+    &END QS
+
+    &SCF
+      SCF_GUESS ATOMIC
+      EPS_SCF 1.0E-6
+      MAX_SCF 100
+      &OT
+        MINIMIZER DIIS
+        PRECONDITIONER FULL_SINGLE_INVERSE
+      &END OT
+    &END SCF
+
+    &POISSON
+      PERIODIC XYZ
+      POISSON_SOLVER PERIODIC
+      &EWALD
+        EWALD_TYPE SPME
+        GMAX 25
+      &END EWALD
+    &END POISSON
+  &END DFT
+
+  &QMMM
+    ECOUPL COULOMB
+    USE_GEEP_LIB 12
+    &PERIODIC
+      GMAX 0.5
+      &MULTIPOLE ON
+        EWALD_PRECISION 1.0E-6
+      &END MULTIPOLE
+    &END PERIODIC
+  &END QMMM
+&END FORCE_EVAL
