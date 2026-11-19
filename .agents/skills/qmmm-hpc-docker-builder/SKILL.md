@@ -170,7 +170,30 @@ Before finalizing the container image, the agent MUST execute a multi-stage veri
 
 ---
 
-## 7. HPC Deployment Notes (Apptainer / Singularity)
+## 7. Spec-First Debugging Rule (Mandatory `docker run` Inspection)
+
+When any build, linkage, CLI, or runtime error occurs, the agent MUST NOT guess or iterate blindly by trial-and-error. Before editing scripts, templates, or `Dockerfile`, inspect the **exact specification of the compiled binaries inside the container** using `docker run --rm <image> ...`:
+
+1. **CP2K Input Schema & Keywords**:
+   - Dump and query the compiled binary's actual XML input schema instead of assuming syntax across CP2K versions:
+     ```bash
+     docker run --rm <image> bash -c 'cd /tmp && cp2k.psmp --xml && grep -i -C 5 "<KEYWORD>" cp2k_input.xml'
+     ```
+   - Verify section hierarchy (e.g., `/FORCE_EVAL/QMMM/PERIODIC/POISSON/EWALD`), `SECTION_PARAMETERS` (`&TBLITE T` vs `GFN_TYPE`), and valid sub-keywords before modifying `.inp` templates.
+2. **Compiled Flags, Patches & Shared Library Linkage**:
+   - Inspect enabled features and libraries directly in the image:
+     - `cp2k.psmp --version` (`cp2kflags` for `tblite`, `libdftd4`, etc.)
+     - `ldd /opt/cp2k/lib/libcp2k.so` and `ldd /opt/gromacs/bin/gmx_mpi`
+     - `ls -d /opt/plumed/lib/plumed/patches/*` (exact supported engine names)
+3. **GROMACS CLI Options & `pipefail` Safety**:
+   - Inspect hidden and standard flags via `gmx_mpi <cmd> -h -hidden` inside `docker run`.
+   - Under `set -euo pipefail`, capture command output into a variable before running `grep -q` (to avoid `SIGPIPE` / exit code `141`).
+4. **Runtime QM/MM Failure Logs**:
+   - Always dump `md.log`, generated CP2K inputs (e.g., `qmmm_run.inp`), and `*.out` logs on failure before removing temporary work directories so the exact `[ABORT]` / `CPASSERT` file and line number are diagnosed in a single step.
+
+---
+
+## 8. HPC Deployment Notes (Apptainer / Singularity)
 
 When generating an Apptainer/Singularity definition file (`.def`) or conversion instructions from Docker:
 - Ensure `%environment` explicitly exports `PATH`, `LD_LIBRARY_PATH`, `PLUMED_KERNEL`, and `GMXDATA`.
